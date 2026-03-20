@@ -1,0 +1,7 @@
+bMad/
+__pycache__/
+build/
+dist/
+*.exe
+*.db
+*.spec
