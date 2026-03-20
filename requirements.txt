@@ -1,0 +1,6 @@
+psutil
+matplotlib
+requests
+pywin32
+pystray
+Pillow
