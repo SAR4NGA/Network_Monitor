@@ -78,7 +78,7 @@ class MiniWidget:
         # Default speed text (always visible)
         self._speed_id = self.canvas.create_text(
             win_w - 10, 100, anchor="ne", justify="right",
-            text="↑  0 B/s    ↓  0 B/s",
+            text="↓  0 B/s    ↑  0 B/s",
             font=("Segoe UI", 10, "bold"), fill=self.FG,
         )
 
@@ -88,12 +88,18 @@ class MiniWidget:
             font=("Segoe UI", 10), fill=self.FG,
         )
 
+        # Hide button (only shows on hover)
+        self._hide_btn_id = self.canvas.create_text(
+            win_w - 10, 10, anchor="ne", text="✕ Hide",
+            font=("Segoe UI", 8), fill=self.FG, state="hidden"
+        )
+
         # Bind hover on the *root* so it works even though window is click-through
         # We'll poll the mouse position instead.
         self._is_hovering = False
         self._was_clicked = False
         self._network_name = ""
-        self._local_ip = ""
+        self._public_ip = ""
         self._upload_text = "↑  0 B/s"
         self._download_text = "↓  0 B/s"
         
@@ -118,8 +124,8 @@ class MiniWidget:
     def update_network_name(self, name: str):
         self._network_name = name
 
-    def update_local_ip(self, ip: str):
-        self._local_ip = ip
+    def update_public_ip(self, ip: str):
+        self._public_ip = ip
 
     # ── apply Win32 desktop-layer magic ────────────────────────────
     def apply_desktop_mode(self):
@@ -204,13 +210,22 @@ class MiniWidget:
             if lmb_down:
                 if not self._was_clicked:
                     self._was_clicked = True
-                    # If clicked while hovering, start dragging
+                    # If clicked while hovering, check if it was the "Hide" button or just a drag/click
                     if hovering:
-                        self._is_dragging = True
-                        self._drag_start_x = px
-                        self._drag_start_y = py
-                        self._win_start_x = wx
-                        self._win_start_y = wy
+                        # rel coords within widget
+                        rx = px - wx
+                        ry = py - wy
+                        
+                        # Check "Hide" button (roughly top-right)
+                        if rx > (self.win_w - 60) and ry < 30:
+                            self.root.withdraw()
+                            self._is_dragging = False
+                        else:
+                            self._is_dragging = True
+                            self._drag_start_x = px
+                            self._drag_start_y = py
+                            self._win_start_x = wx
+                            self._win_start_y = wy
                 elif self._is_dragging:
                     # Update window position relative to drag start
                     new_x = self._win_start_x + (px - self._drag_start_x)
@@ -232,14 +247,16 @@ class MiniWidget:
         self.root.after(30, self._poll_hover)
 
     def _refresh_display(self):
-        horiz_text = f"{self._upload_text}    {self._download_text}"
+        horiz_text = f"{self._download_text}    {self._upload_text}"
         self.canvas.itemconfigure(self._speed_id, text=horiz_text)
         
         if self._is_hovering:
-            detail = f"Network:  {self._network_name}\nLocal IP:   {self._local_ip}"
+            detail = f"Network:  {self._network_name}\nPublic IP:  {self._public_ip}"
             self.canvas.itemconfigure(self._detail_id, text=detail)
+            self.canvas.itemconfigure(self._hide_btn_id, state="normal")
         else:
             self.canvas.itemconfigure(self._detail_id, text="")
+            self.canvas.itemconfigure(self._hide_btn_id, state="hidden")
 
     # ── helpers ────────────────────────────────────────────────────
     @staticmethod
