@@ -33,7 +33,7 @@ def get_primary_adapter() -> str | None:
     try:
         ps_cmd = (
             "Get-NetRoute -DestinationPrefix '0.0.0.0/0' "
-            "| Sort-Object RouteMetric "
+            "| Sort-Object { $_.RouteMetric + $_.InterfaceMetric } "
             "| Select-Object -First 1 -ExpandProperty InterfaceAlias"
         )
         result = subprocess.run(
