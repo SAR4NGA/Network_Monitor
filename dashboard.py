@@ -34,14 +34,15 @@ class Dashboard:
     """
 
     # ── colour tokens ──────────────────────────────────────────────
-    BG           = "#0f0f1a"
-    FG           = "#e0e0e0"
-    ACCENT_UP    = "#00f5d4"
-    ACCENT_DOWN  = "#f72585"
-    CARD_BG      = "#1a1a2e"
-    HEADER_FG    = "#7b7f9e"
+    BG           = "#36393f"  # Discord main bg
+    FG           = "#ffffff"  # Pure white
+    ACCENT_UP    = "#5865F2"  # Blurple
+    ACCENT_DOWN  = "#57F287"  # Green
+    CARD_BG      = "#2f3136"  # Discord sub bg
+    HEADER_FG    = "#ffffff"  # Pure white
+    TITLE_BG     = "#202225"  # Headings bg
 
-    HISTORY_SIZE = 20  # seconds of live data
+    HISTORY_SIZE = 60  # seconds of live data
 
     def __init__(self, master: tk.Tk):
         self.win = None
@@ -58,13 +59,20 @@ class Dashboard:
         self.tree = None
         self.conn_tree = None
         self.app_tree = None
+        self._is_opening = False
 
     # ── public API ─────────────────────────────────────────────────
     def open(self, local_ip: str, public_ip: str):
         """Create / raise the dashboard window."""
+        if getattr(self, "_is_opening", False):
+            return
+        
         if self.win is not None and self.win.winfo_exists():
             self.win.lift()
             return
+
+        self._is_opening = True
+        self.master.after(500, lambda: setattr(self, "_is_opening", False))
 
         self.win = tk.Toplevel(self.master)
         self.win.title("Network Monitor – Dashboard")
@@ -90,12 +98,12 @@ class Dashboard:
                         font=("Segoe UI", 14, "bold"))
         style.configure("Hist.Treeview",
                         background=self.CARD_BG, foreground=self.FG,
-                        fieldbackground=self.CARD_BG, rowheight=24,
-                        font=("Segoe UI", 9))
+                        fieldbackground=self.CARD_BG, rowheight=28,
+                        font=("Segoe UI", 9), borderwidth=0)
         style.configure("Hist.Treeview.Heading",
-                        background="#16213e", foreground=self.HEADER_FG,
-                        font=("Segoe UI", 9, "bold"))
-        style.map("Hist.Treeview", background=[("selected", "#0f3460")])
+                        background=self.TITLE_BG, foreground=self.HEADER_FG,
+                        font=("Segoe UI", 9, "bold"), borderwidth=0)
+        style.map("Hist.Treeview", background=[("selected", "#393c43")])
 
         # -- Scrollable main frame
         outer = tk.Frame(self.win, bg=self.BG)
@@ -131,7 +139,7 @@ class Dashboard:
         graph_card = ttk.Frame(inner, style="Card.TFrame", padding=10)
         graph_card.pack(fill="x", padx=20, pady=(0, 10))
 
-        ttk.Label(graph_card, text="LIVE SPEED  (last 20 s)", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(graph_card, text="LIVE SPEED  (last 1 min)", style="Header.TLabel").pack(anchor="w")
 
         self.fig = Figure(figsize=(7, 2.2), dpi=100, facecolor=self.CARD_BG)
         self.ax = self.fig.add_subplot(111)
@@ -140,10 +148,14 @@ class Dashboard:
         xs = list(range(-self.HISTORY_SIZE + 1, 1))
         self.line_up, = self.ax.plot(xs, list(self._up_history), color=self.ACCENT_UP,
                                      linewidth=2, label="Upload")
+        self.fill_up = self.ax.fill_between(xs, list(self._up_history), color=self.ACCENT_UP, alpha=0.15)
+        
         self.line_down, = self.ax.plot(xs, list(self._down_history), color=self.ACCENT_DOWN,
                                        linewidth=2, label="Download")
-        self.ax.legend(loc="upper left", fontsize=8, facecolor=self.CARD_BG,
-                       edgecolor="#333", labelcolor=self.FG)
+        self.fill_down = self.ax.fill_between(xs, list(self._down_history), color=self.ACCENT_DOWN, alpha=0.15)
+        
+        self.ax.legend(loc="upper left", fontsize=8, facecolor=self.BG,
+                       edgecolor=self.BG, labelcolor=self.FG, framealpha=0.8)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=graph_card)
         self.canvas.get_tk_widget().pack(fill="x")
@@ -304,6 +316,15 @@ class Dashboard:
         self.line_up.set_ydata(list(self._up_history))
         self.line_down.set_ydata(list(self._down_history))
 
+        if hasattr(self, 'fill_up') and self.fill_up:
+            self.fill_up.remove()
+        if hasattr(self, 'fill_down') and self.fill_down:
+            self.fill_down.remove()
+
+        xs = list(range(-self.HISTORY_SIZE + 1, 1))
+        self.fill_up = self.ax.fill_between(xs, list(self._up_history), color=self.ACCENT_UP, alpha=0.15)
+        self.fill_down = self.ax.fill_between(xs, list(self._down_history), color=self.ACCENT_DOWN, alpha=0.15)
+
         max_val = max(max(self._up_history), max(self._down_history), 1)
         self.ax.set_ylim(0, max_val * 1.2)
 
@@ -322,7 +343,7 @@ class Dashboard:
     # ── internal ───────────────────────────────────────────────────
     def _style_axis(self):
         self.ax.set_facecolor(self.CARD_BG)
-        self.ax.tick_params(colors=self.FG, labelsize=8)
+        self.ax.tick_params(colors=self.HEADER_FG, labelsize=8)
         self.ax.set_xlabel("Seconds ago", fontsize=8, color=self.HEADER_FG)
         self.ax.set_ylabel("Speed", fontsize=8, color=self.HEADER_FG)
 
@@ -330,8 +351,8 @@ class Dashboard:
         self.ax.yaxis.set_major_formatter(FuncFormatter(self._format_yaxis))
 
         for spine in self.ax.spines.values():
-            spine.set_color("#333")
-        self.ax.grid(True, color="#222", linewidth=0.5)
+            spine.set_visible(False)
+        self.ax.grid(True, color="#3e4147", linewidth=0.5, linestyle="--")
 
     def _format_yaxis(self, val, pos):
         if val < 1024:
