@@ -15,6 +15,11 @@ import os
 import time
 
 try:
+    # Single instance application check (mutex)
+    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "NetworkMonitor_SingleInstance_Mutex")
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        sys.exit(0)
+        
     # Use type: ignore to bypass cross-platform static analysis warnings from linters
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # type: ignore
 except Exception:
