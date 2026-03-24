@@ -167,25 +167,29 @@ class NetworkMonitorApp:
             self.root.destroy()
             return
 
-        up, down, sent_d, recv_d = get_speed()
+        try:
+            up, down, sent_d, recv_d = get_speed()
 
-        if sent_d > 0 or recv_d > 0:
-            update_usage(sent_d, recv_d)
-            # Track per-connection usage using the current network name
-            if self._network_name and self._network_name not in ("Detecting…", "Unknown"):
-                update_connection_usage(self._network_name, sent_d, recv_d)
-            # Accumulate for app attribution window
-            self._window_sent += sent_d
-            self._window_recv += recv_d
+            if sent_d > 0 or recv_d > 0:
+                update_usage(sent_d, recv_d)
+                # Track per-connection usage using the current network name
+                if self._network_name and self._network_name not in ("Detecting…", "Unknown"):
+                    update_connection_usage(self._network_name, sent_d, recv_d)
+                # Accumulate for app attribution window
+                self._window_sent += sent_d
+                self._window_recv += recv_d
 
-        self.widget.update_speed(up, down)
-        self.widget.update_network_name(self._network_name)
-        self.widget.update_public_ip(self._public_ip)
+            self.widget.update_speed(up, down)
+            self.widget.update_network_name(self._network_name)
+            self.widget.update_public_ip(self._public_ip)
 
-        # Feed live data to the dashboard if it's open
-        if self.dashboard.is_open():
-            self.dashboard.update_graph(up, down)
-            self.dashboard.update_ips(self._local_ip, self._public_ip)
+            # Feed live data to the dashboard if it's open
+            if self.dashboard.is_open():
+                self.dashboard.update_graph(up, down)
+                self.dashboard.update_ips(self._local_ip, self._public_ip)
+        except Exception as e:
+            # During sleep or hibernate, network adapters might briefly disappear or throw errors
+            pass
 
         self.root.after(self.POLL_MS, self._poll)
 

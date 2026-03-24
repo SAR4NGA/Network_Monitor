@@ -24,31 +24,9 @@ def get_primary_adapter() -> str | None:
     (i.e. the internet-facing adapter). Result is cached for 30s via caller.
 
     Strategy:
-      1. Ask PowerShell for the interface with the default (0.0.0.0/0) route
-         that has the lowest metric (most preferred route).
-      2. Fall back to the adapter whose address matches get_local_ip().
-      3. Return None if undetermined (caller will sum all non-loopback adapters).
+      Match local IP to an adapter address via socket (fast, doesn't block UI).
+      Return None if undetermined.
     """
-    # Method 1: PowerShell default route
-    try:
-        ps_cmd = (
-            "Get-NetRoute -DestinationPrefix '0.0.0.0/0' "
-            "| Sort-Object { $_.RouteMetric + $_.InterfaceMetric } "
-            "| Select-Object -First 1 -ExpandProperty InterfaceAlias"
-        )
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_cmd],
-            capture_output=True, text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-            timeout=3,
-        )
-        name = result.stdout.strip()
-        if name:
-            return name
-    except Exception:
-        pass
-
-    # Method 2: match local IP to an adapter address
     try:
         local_ip = get_local_ip()
         if local_ip and local_ip != "N/A":
