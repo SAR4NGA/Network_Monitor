@@ -47,7 +47,7 @@ def get_primary_adapter() -> str | None:
 _prev_counters = None
 _primary_adapter: str | None = None
 _adapter_check_counter = 0          # re-detect adapter every 30 calls (~30 s)
-
+_fallback_mode = False
 
 def get_speed():
     """
@@ -56,13 +56,19 @@ def get_speed():
     Only traffic on the primary internet-facing adapter is counted so that
     loopback, LAN shares, and virtual adapters do not inflate the numbers.
     """
-    global _prev_counters, _primary_adapter, _adapter_check_counter
+    global _prev_counters, _primary_adapter, _adapter_check_counter, _fallback_mode
 
     # Refresh primary adapter name every 30 calls
     _adapter_check_counter += 1
     if _adapter_check_counter >= 30 or _primary_adapter is None:
-        _primary_adapter = get_primary_adapter()
+        new_primary = get_primary_adapter()
+        if new_primary != _primary_adapter:
+             # Adapter changed, reset baseline
+             _prev_counters = None
+        _primary_adapter = new_primary
         _adapter_check_counter = 0
+
+    using_fallback = False
 
     # Collect counters
     if _primary_adapter:
@@ -76,6 +82,7 @@ def get_speed():
             _prev_counters = None
             return 0, 0, 0, 0
     else:
+        using_fallback = True
         # Fallback: sum non-loopback, non-virtual adapters
         all_counters = psutil.net_io_counters(pernic=True)
         _SKIP = {"loopback", "pseudo", "vmware", "vethernet", "hyper-v",
@@ -100,6 +107,10 @@ def get_speed():
                 self.bytes_recv = r
         counters = _Cnt(sent, recv)
 
+    if using_fallback != _fallback_mode:
+         _prev_counters = None
+         _fallback_mode = using_fallback
+
     if _prev_counters is None:
         _prev_counters = counters
         return 0, 0, 0, 0
@@ -107,6 +118,11 @@ def get_speed():
     sent_delta = max(0, counters.bytes_sent - _prev_counters.bytes_sent)
     recv_delta = max(0, counters.bytes_recv - _prev_counters.bytes_recv)
     _prev_counters = counters
+
+    # Ignore physically impossible deltas (e.g., > 100 Gbps or 12.5 GB/s)
+    # This acts as a safety net against OS counter rollovers or glitches.
+    if sent_delta > 12500000000 or recv_delta > 12500000000:
+        return 0, 0, 0, 0
 
     return sent_delta, recv_delta, sent_delta, recv_delta
 
