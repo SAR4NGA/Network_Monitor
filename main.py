@@ -29,7 +29,7 @@ import pystray
 from PIL import Image, ImageDraw
 from pystray import MenuItem as item
 
-from database import initialize_db, update_usage, update_connection_usage, update_app_usage
+from database import initialize_db
 from network_scanner import get_speed, get_local_ip, get_public_ip, get_network_name
 from widget import MiniWidget
 from dashboard import Dashboard
@@ -171,10 +171,6 @@ class NetworkMonitorApp:
             up, down, sent_d, recv_d = get_speed()
 
             if sent_d > 0 or recv_d > 0:
-                update_usage(sent_d, recv_d)
-                # Track per-connection usage using the current network name
-                if self._network_name and self._network_name not in ("Detecting…", "Unknown"):
-                    update_connection_usage(self._network_name, sent_d, recv_d)
                 # Accumulate for app attribution window
                 self._window_sent += sent_d
                 self._window_recv += recv_d
@@ -278,22 +274,15 @@ class NetworkMonitorApp:
                     pid_conn_count[pid] += 1
 
                 # We'll attribute the bandwidth measured over the last 5s window.
-                # The _poll loop already wrote the per-second deltas to daily_usage.
+                # The _poll loop already accumulated the per-second deltas.
                 # Here we need the 5s window total — read it from a shared counter.
                 total_sent = self._window_sent
                 total_recv = self._window_recv
                 self._window_sent = 0
                 self._window_recv = 0
 
-                if pid_conn_count and (total_sent + total_recv) > 0:
-                    total_conns = sum(pid_conn_count.values())
-                    for pid, conn_count in pid_conn_count.items():
-                        fraction = conn_count / total_conns
-                        app_sent = int(total_sent * fraction)
-                        app_recv = int(total_recv * fraction)
-                        name = pid_name.get(pid, "Unknown")
-                        if name and (app_sent + app_recv) > 0:
-                            update_app_usage(name, app_sent, app_recv)
+                # App attribution is now strictly handled by the background service,
+                # so we do not push to the database from the UI process.
 
             except Exception:
                 pass
