@@ -9,17 +9,30 @@ import sqlite3
 import os
 from datetime import datetime, timedelta
 
-# Use a fixed path in %APPDATA% so the widget, service, and dashboard
-# all read/write the SAME database regardless of install location.
-DB_DIR  = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "NetworkMonitor")
+# Use a fixed path in %PUBLIC% so the widget, service, and dashboard
+# all read/write the SAME database regardless of user context (SYSTEM vs User).
+import shutil
+
+DB_DIR = os.path.join(os.environ.get("PUBLIC", "C:\\Users\\Public"), "NetworkMonitor")
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "network_usage.db")
+
+# Transparently migrate historical data from the old AppData location if it exists
+old_db_dir = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "NetworkMonitor")
+old_db_path = os.path.join(old_db_dir, "network_usage.db")
+if not os.path.exists(DB_PATH) and os.path.exists(old_db_path):
+    try:
+        shutil.copy2(old_db_path, DB_PATH)
+    except Exception:
+        pass
 
 
 def _get_connection():
     """Return a connection to the SQLite database."""
     conn = sqlite3.connect(DB_PATH, timeout=20)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     return conn
 
 

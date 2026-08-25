@@ -48,6 +48,7 @@ _prev_counters = None
 _primary_adapter: str | None = None
 _adapter_check_counter = 0          # re-detect adapter every 30 calls (~30 s)
 _fallback_mode = False
+_fallback_nic_set: set | None = None
 
 def get_speed():
     """
@@ -56,7 +57,7 @@ def get_speed():
     Only traffic on the primary internet-facing adapter is counted so that
     loopback, LAN shares, and virtual adapters do not inflate the numbers.
     """
-    global _prev_counters, _primary_adapter, _adapter_check_counter, _fallback_mode
+    global _prev_counters, _primary_adapter, _adapter_check_counter, _fallback_mode, _fallback_nic_set
 
     # Refresh primary adapter name every 30 calls
     _adapter_check_counter += 1
@@ -89,6 +90,7 @@ def get_speed():
                  "vbox", "virtualbox", "wsl", "isatap", "teredo"}
         sent, recv = 0, 0
         stats = psutil.net_if_stats()
+        active_nics = set()
         for nic, c in all_counters.items():
             nic_lower = nic.lower()
             if not stats.get(nic, None) or not stats[nic].isup:
@@ -99,6 +101,14 @@ def get_speed():
                 continue
             sent += c.bytes_sent
             recv += c.bytes_recv
+            active_nics.add(nic)
+
+        # When the set of active NICs changes (e.g. LAN cable plugged in),
+        # reset baseline so the new NIC's full accumulated counters are
+        # NOT falsely treated as a single-poll spike.
+        if _fallback_nic_set is not None and active_nics != _fallback_nic_set:
+            _prev_counters = None
+        _fallback_nic_set = active_nics
 
         # Build a synthetic object
         class _Cnt:

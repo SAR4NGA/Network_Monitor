@@ -232,6 +232,7 @@ class Dashboard:
 
         tree.tag_configure("total", font=("Segoe UI", 9, "bold"))
         tree.tag_configure("sep", foreground=self.HEADER_FG)
+        tree.tag_configure("empty", foreground="#888888", font=("Segoe UI", 9, "italic"))
         return tree
 
     # ── auto-refresh (5 s) ─────────────────────────────────────────
@@ -251,18 +252,21 @@ class Dashboard:
         for row in self.tree.get_children():
             self.tree.delete(row)
 
-        data = get_last_30_days()
-        total_sent = total_recv = 0
-        for entry in reversed(data):
-            sent, recv = entry["bytes_sent"], entry["bytes_recv"]
-            total_sent += sent
-            total_recv += recv
-            self.tree.insert("", "end", values=(
-                entry["date"], self._fmt(recv), self._fmt(sent),
-            ))
-        if data:
-            self.tree.insert("", "end", values=("──────────", "──────────", "──────────"), tags=("sep",))
-            self.tree.insert("", "end", values=("TOTAL (30 Days)", self._fmt(total_recv), self._fmt(total_sent)), tags=("total",))
+        try:
+            data = get_last_30_days()
+            total_sent = total_recv = 0
+            for entry in reversed(data):
+                sent, recv = entry["bytes_sent"], entry["bytes_recv"]
+                total_sent += sent
+                total_recv += recv
+                self.tree.insert("", "end", values=(
+                    entry["date"], self._fmt(recv), self._fmt(sent),
+                ))
+            if data:
+                self.tree.insert("", "end", values=("──────────", "──────────", "──────────"), tags=("sep",))
+                self.tree.insert("", "end", values=("TOTAL (30 Days)", self._fmt(total_recv), self._fmt(total_sent)), tags=("total",))
+        except Exception:
+            self.tree.insert("", "end", values=("Error loading data", "", ""), tags=("empty",))
 
     def _populate_connection(self):
         """Fill the per-connection table."""
@@ -271,18 +275,23 @@ class Dashboard:
         for row in self.conn_tree.get_children():
             self.conn_tree.delete(row)
 
-        data = get_connection_usage_30_days()
-        total_sent = total_recv = 0
-        for entry in data:
-            sent, recv = entry["bytes_sent"], entry["bytes_recv"]
-            total_sent += sent
-            total_recv += recv
-            self.conn_tree.insert("", "end", values=(
-                entry["connection"], self._fmt(recv), self._fmt(sent), self._fmt(sent + recv),
-            ))
-        if data:
-            self.conn_tree.insert("", "end", values=("──────────", "──────", "──────", "──────"), tags=("sep",))
-            self.conn_tree.insert("", "end", values=("TOTAL", self._fmt(total_recv), self._fmt(total_sent), self._fmt(total_sent + total_recv)), tags=("total",))
+        try:
+            data = get_connection_usage_30_days()
+            total_sent = total_recv = 0
+            for entry in data:
+                sent, recv = entry["bytes_sent"], entry["bytes_recv"]
+                total_sent += sent
+                total_recv += recv
+                self.conn_tree.insert("", "end", values=(
+                    entry["connection"], self._fmt(recv), self._fmt(sent), self._fmt(sent + recv),
+                ))
+            if data:
+                self.conn_tree.insert("", "end", values=("──────────", "──────", "──────", "──────"), tags=("sep",))
+                self.conn_tree.insert("", "end", values=("TOTAL", self._fmt(total_recv), self._fmt(total_sent), self._fmt(total_sent + total_recv)), tags=("total",))
+            else:
+                self.conn_tree.insert("", "end", values=("No data for this period", "", "", ""), tags=("empty",))
+        except Exception:
+            self.conn_tree.insert("", "end", values=("Error loading data", "", "", ""), tags=("empty",))
 
     def _populate_apps(self):
         """Fill the per-app table."""
@@ -291,18 +300,23 @@ class Dashboard:
         for row in self.app_tree.get_children():
             self.app_tree.delete(row)
 
-        data = get_app_usage_today()
-        total_sent = total_recv = 0
-        for entry in data:
-            sent, recv = entry["bytes_sent"], entry["bytes_recv"]
-            total_sent += sent
-            total_recv += recv
-            self.app_tree.insert("", "end", values=(
-                entry["app_name"], self._fmt(recv), self._fmt(sent), self._fmt(sent + recv),
-            ))
-        if data:
-            self.app_tree.insert("", "end", values=("──────────", "──────", "──────", "──────"), tags=("sep",))
-            self.app_tree.insert("", "end", values=("TOTAL (Today)", self._fmt(total_recv), self._fmt(total_sent), self._fmt(total_sent + total_recv)), tags=("total",))
+        try:
+            data = get_app_usage_today()
+            total_sent = total_recv = 0
+            for entry in data:
+                sent, recv = entry["bytes_sent"], entry["bytes_recv"]
+                total_sent += sent
+                total_recv += recv
+                self.app_tree.insert("", "end", values=(
+                    entry["app_name"], self._fmt(recv), self._fmt(sent), self._fmt(sent + recv),
+                ))
+            if data:
+                self.app_tree.insert("", "end", values=("──────────", "──────", "──────", "──────"), tags=("sep",))
+                self.app_tree.insert("", "end", values=("TOTAL (Today)", self._fmt(total_recv), self._fmt(total_sent), self._fmt(total_sent + total_recv)), tags=("total",))
+            else:
+                self.app_tree.insert("", "end", values=("No usage recorded today", "", "", ""), tags=("empty",))
+        except Exception:
+            self.app_tree.insert("", "end", values=("Error loading data", "", "", ""), tags=("empty",))
 
     # ── live updates ──────────────────────────────────────────────
     def update_graph(self, up_bps: int, down_bps: int):

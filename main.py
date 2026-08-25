@@ -13,6 +13,7 @@ import winreg
 import sys
 import os
 import time
+import traceback
 
 try:
     # Single instance application check (mutex)
@@ -91,13 +92,9 @@ class NetworkMonitorApp:
         self._local_ip = "Fetching…"
         self._public_ip = "Fetching…"
         self._network_name = "Detecting…"
-        # Shared bandwidth window accumulators (filled by _poll, read by _app_usage_loop)
-        self._window_sent = 0
-        self._window_recv = 0
 
         # ── background fetches ─────────────────────────────────────
         threading.Thread(target=self._network_info_loop, daemon=True).start()
-        threading.Thread(target=self._app_usage_loop, daemon=True).start()
 
         # ── system tray ────────────────────────────────────────────
         self.tray = pystray.Icon(
@@ -168,12 +165,7 @@ class NetworkMonitorApp:
             return
 
         try:
-            up, down, sent_d, recv_d = get_speed()
-
-            if sent_d > 0 or recv_d > 0:
-                # Accumulate for app attribution window
-                self._window_sent += sent_d
-                self._window_recv += recv_d
+            up, down, _, _ = get_speed()
 
             self.widget.update_speed(up, down)
             self.widget.update_network_name(self._network_name)
@@ -183,9 +175,9 @@ class NetworkMonitorApp:
             if self.dashboard.is_open():
                 self.dashboard.update_graph(up, down)
                 self.dashboard.update_ips(self._local_ip, self._public_ip)
-        except Exception as e:
-            # During sleep or hibernate, network adapters might briefly disappear or throw errors
-            pass
+        except Exception:
+            print("[NetworkMonitor] _poll error:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
 
         self.root.after(self.POLL_MS, self._poll)
 
@@ -214,84 +206,14 @@ class NetworkMonitorApp:
                     last_public_ip_check = now
 
             except Exception:
-                pass
+                print("[NetworkMonitor] _network_info_loop error:", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
 
             # Poll every 10 seconds
             # Using a shorter sleep with a loop to respond to quit_requested faster
             for _ in range(100):
                 if self._quit_requested: break
                 time.sleep(0.1)
-
-    def _app_usage_loop(self):
-        """
-        Background loop: track per-app network usage every 5 seconds.
-
-        Approach: identify which processes have active external (non-loopback,
-        non-LAN) TCP/UDP connections, then proportionally attribute the total
-        measured internet bandwidth among those processes by connection count.
-        This avoids using proc.io_counters() which includes disk I/O on Windows.
-        """
-        import psutil
-
-        PRIVATE_PREFIXES = ("127.", "::1", "0.0.0.0", "::")
-
-        def is_external(addr):
-            if not addr or not addr.ip:
-                return False
-            ip = addr.ip
-            return not any(ip.startswith(p) for p in PRIVATE_PREFIXES) and \
-                   not ip.startswith("10.") and \
-                   not (ip.startswith("192.168.")) and \
-                   not (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31)
-
-        while not self._quit_requested:
-            try:
-                # Get total internet bytes in this 5s window from the main poll
-                # We read cumulative values and diff them
-                total_sent = 0
-                total_recv = 0
-
-                # Count connections per process (external only)
-                pid_conn_count: dict = {}
-                pid_name: dict = {}
-
-                for conn in psutil.net_connections(kind="inet"):
-                    if conn.pid is None:
-                        continue
-                    raddr = conn.raddr
-                    if not raddr:
-                        continue
-                    if not is_external(raddr):
-                        continue
-                    pid = conn.pid
-                    if pid not in pid_conn_count:
-                        pid_conn_count[pid] = 0
-                        try:
-                            p = psutil.Process(pid)
-                            pid_name[pid] = p.name()
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pid_name[pid] = "Unknown"
-                    pid_conn_count[pid] += 1
-
-                # We'll attribute the bandwidth measured over the last 5s window.
-                # The _poll loop already accumulated the per-second deltas.
-                # Here we need the 5s window total — read it from a shared counter.
-                total_sent = self._window_sent
-                total_recv = self._window_recv
-                self._window_sent = 0
-                self._window_recv = 0
-
-                # App attribution is now strictly handled by the background service,
-                # so we do not push to the database from the UI process.
-
-            except Exception:
-                pass
-
-            # Every 5 seconds
-            for _ in range(50):
-                if self._quit_requested: break
-                time.sleep(0.1)
-
 
     def _open_dashboard(self):
         """Called when the user clicks on the desktop widget."""
