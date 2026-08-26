@@ -18,19 +18,40 @@ import requests
 _primary_adapter_cache: str | None = None
 
 
+# Adapter names containing any of these substrings are virtual interfaces
+# (VPN tunnels, loopback, hypervisors, etc.) and must NEVER be treated as a
+# physical NIC. Counting a WireGuard/TAP adapter reports near-zero bytes on
+# Windows, which would make the usage history stay empty.
+_VIRTUAL_NIC_KEYWORDS = (
+    "loopback", "pseudo", "vmware", "vethernet", "hyper-v", "vbox",
+    "virtualbox", "wsl", "isatap", "teredo",
+    "vpn", "tap", "tun", "wireguard", "wintun", "openvpn", "tailscale",
+)
+
+
+def _is_virtual_nic(name: str) -> bool:
+    """Return True if an adapter name belongs to a virtual/VPN interface."""
+    nl = (name or "").lower()
+    return any(k in nl for k in _VIRTUAL_NIC_KEYWORDS)
+
+
 def get_primary_adapter() -> str | None:
     """
-    Return the name of the network adapter that carries the default route
-    (i.e. the internet-facing adapter). Result is cached for 30s via caller.
+    Return the name of the physical network adapter that carries internet
+    traffic. Result is cached for 30s via caller.
 
     Strategy:
-      Match local IP to an adapter address via socket (fast, doesn't block UI).
+      Match the local IP to a physical (non-virtual) adapter address.
+      If the local IP belongs to a VPN tunnel, no physical adapter matches and
+      the caller falls back to summing physical adapters instead.
       Return None if undetermined.
     """
     try:
         local_ip = get_local_ip()
         if local_ip and local_ip != "N/A":
             for iface, addrs in psutil.net_if_addrs().items():
+                if _is_virtual_nic(iface):
+                    continue
                 for addr in addrs:
                     if addr.address == local_ip:
                         return iface
@@ -84,20 +105,15 @@ def get_speed():
             return 0, 0, 0, 0
     else:
         using_fallback = True
-        # Fallback: sum non-loopback, non-virtual adapters
+        # Fallback: sum physical (non-virtual) adapters only
         all_counters = psutil.net_io_counters(pernic=True)
-        _SKIP = {"loopback", "pseudo", "vmware", "vethernet", "hyper-v",
-                 "vbox", "virtualbox", "wsl", "isatap", "teredo"}
         sent, recv = 0, 0
         stats = psutil.net_if_stats()
         active_nics = set()
         for nic, c in all_counters.items():
-            nic_lower = nic.lower()
             if not stats.get(nic, None) or not stats[nic].isup:
                 continue
-            if any(k in nic_lower for k in _SKIP):
-                continue
-            if "loopback" in nic_lower or nic_lower.startswith("lo"):
+            if _is_virtual_nic(nic):
                 continue
             sent += c.bytes_sent
             recv += c.bytes_recv
