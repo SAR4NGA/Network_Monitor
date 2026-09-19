@@ -17,14 +17,63 @@ DB_DIR = os.path.join(os.environ.get("PUBLIC", "C:\\Users\\Public"), "NetworkMon
 os.makedirs(DB_DIR, exist_ok=True)
 DB_PATH = os.path.join(DB_DIR, "network_usage.db")
 
-# Transparently migrate historical data from the old AppData location if it exists
-old_db_dir = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "NetworkMonitor")
-old_db_path = os.path.join(old_db_dir, "network_usage.db")
-if not os.path.exists(DB_PATH) and os.path.exists(old_db_path):
+# ── Migrate / merge historical data from old %APPDATA% location ───────────
+# Older builds wrote to %APPDATA%\NetworkMonitor.  If that DB still exists
+# and contains data that our new %PUBLIC% DB doesn't have, merge it in so
+# no usage history is lost after an upgrade.
+_OLD_DB_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "NetworkMonitor")
+_OLD_DB_PATH = os.path.join(_OLD_DB_DIR, "network_usage.db")
+
+def _merge_old_database():
+    """Merge rows from the legacy %APPDATA% DB into the current %PUBLIC% DB."""
+    if not os.path.exists(_OLD_DB_PATH):
+        return
+    # If new DB doesn't exist at all, a simple copy is fastest.
+    if not os.path.exists(DB_PATH):
+        try:
+            shutil.copy2(_OLD_DB_PATH, DB_PATH)
+        except Exception:
+            pass
+        return
+    # Both databases exist – merge row-by-row, keeping the higher byte counts.
     try:
-        shutil.copy2(old_db_path, DB_PATH)
+        dst = sqlite3.connect(DB_PATH, timeout=20)
+        dst.execute("PRAGMA journal_mode=WAL;")
+        dst.execute("ATTACH DATABASE ? AS old", (_OLD_DB_PATH,))
+        # daily_usage: keep whichever row has more traffic
+        dst.execute("""
+            INSERT INTO daily_usage (date, bytes_sent, bytes_recv)
+            SELECT date, bytes_sent, bytes_recv FROM old.daily_usage
+            WHERE true
+            ON CONFLICT(date) DO UPDATE SET
+                bytes_sent = MAX(bytes_sent, excluded.bytes_sent),
+                bytes_recv = MAX(bytes_recv, excluded.bytes_recv)
+        """)
+        # connection_usage
+        dst.execute("""
+            INSERT INTO connection_usage (date, connection, bytes_sent, bytes_recv)
+            SELECT date, connection, bytes_sent, bytes_recv FROM old.connection_usage
+            WHERE true
+            ON CONFLICT(date, connection) DO UPDATE SET
+                bytes_sent = MAX(bytes_sent, excluded.bytes_sent),
+                bytes_recv = MAX(bytes_recv, excluded.bytes_recv)
+        """)
+        # app_usage
+        dst.execute("""
+            INSERT INTO app_usage (date, app_name, bytes_sent, bytes_recv)
+            SELECT date, app_name, bytes_sent, bytes_recv FROM old.app_usage
+            WHERE true
+            ON CONFLICT(date, app_name) DO UPDATE SET
+                bytes_sent = MAX(bytes_sent, excluded.bytes_sent),
+                bytes_recv = MAX(bytes_recv, excluded.bytes_recv)
+        """)
+        dst.commit()
+        dst.execute("DETACH DATABASE old")
+        dst.close()
     except Exception:
         pass
+
+_merge_old_database()
 
 
 def _get_connection():
